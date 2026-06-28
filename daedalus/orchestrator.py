@@ -134,13 +134,15 @@ class Orchestrator:
             if test_collect:
                 collected = self.earn.charge_test(price, f"Security audit: {order['target']}", order_id)
             else:
-                paid = self.earn.poll_paid(order.get("payment_link_id", ""))
+                # real business: the customer pays the Payment Link with their own
+                # card; we poll Stripe and book the REAL payment (its id and amount).
+                paid, pi, amount = self.earn.poll_paid(order.get("payment_link_id", ""))
                 if not paid:
                     self.orders.append_event(order_id, "collect", "checkout not paid yet")
-                    return {**self.orders.read(order_id), "paid": False}
-                collected = self.earn.handle_event(
-                    self._completed_event(order_id, price, order.get("payment_link_id") or order_id)
-                )
+                    return {**self.orders.read(order_id), "paid": False,
+                            "message": "customer has not paid the link yet; poll again later"}
+                collected = self.earn.book_paid(order_id, pi, amount if amount is not None else price)
+                price = int(amount) if amount is not None else price
         else:
             ref = order.get("payment_link_id") or order_id
             collected = self.earn.handle_event(self._completed_event(order_id, price, ref))

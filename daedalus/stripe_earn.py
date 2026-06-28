@@ -18,6 +18,16 @@ except ModuleNotFoundError:  # the plugin still loads; Stripe paths run as stubs
     stripe = None
 
 
+def _sfield(obj, key, default=None):
+    """Read a field from either a real Stripe object (ListObject/StripeObject use
+    item access, not .get) or a plain dict. Real Stripe responses are not dicts."""
+    try:
+        val = obj[key]
+        return default if val is None else val
+    except (KeyError, TypeError, AttributeError):
+        return getattr(obj, key, default)
+
+
 class StripeEarn:
     def __init__(self, ledger, api_key=None, webhook_secret=None):
         self.ledger = ledger
@@ -72,13 +82,13 @@ class StripeEarn:
 
     def handle_event(self, event):
         """Book revenue on a completed checkout. Idempotent. Returns a result dict."""
-        etype = event["type"] if isinstance(event, dict) else event.type
+        etype = _sfield(event, "type")
         if etype != "checkout.session.completed":
             return {"ignored": etype}
         session = event["data"]["object"]
-        ref = session.get("payment_intent") or session.get("id") or ""
-        amount = session.get("amount_total")
-        order_id = (session.get("metadata") or {}).get("order_id", "")
+        ref = _sfield(session, "payment_intent") or _sfield(session, "id") or ""
+        amount = _sfield(session, "amount_total")
+        order_id = _sfield(_sfield(session, "metadata", {}) or {}, "order_id", "")
         if amount is None:
             return {"error": "session has no amount_total"}
         if not ref:
@@ -89,9 +99,24 @@ class StripeEarn:
         return {"booked_cents": int(amount), "ref": ref, "order_id": order_id}
 
     def poll_paid(self, payment_link_id):
-        """Fallback when no webhook listener: has any session for this link been paid?"""
-        if not self.enabled:
-            return False
+        """Has a customer paid this Payment Link? Serverless: no webhook needed.
+        Returns (paid: bool, payment_intent: str, amount_cents: int|None) so the
+        caller books the REAL payment (its id and amount), not a synthesized one."""
+        if not self.enabled or not payment_link_id:
+            return False, "", None
         sessions = stripe.checkout.Session.list(payment_link=payment_link_id, limit=1)
-        data = sessions.get("data", [])
-        return bool(data) and data[0].get("payment_status") == "paid"
+        data = _sfield(sessions, "data") or []
+        if not data or _sfield(data[0], "payment_status") != "paid":
+            return False, "", None
+        s = data[0]
+        return True, (_sfield(s, "payment_intent") or _sfield(s, "id") or ""), _sfield(s, "amount_total")
+
+    def book_paid(self, order_id, payment_intent, amount_cents):
+        """Book revenue for a confirmed real payment. Idempotent on the PI id."""
+        ref = payment_intent or ""
+        if not ref:
+            return {"error": "no payment_intent to book against"}
+        if self.ledger.has_ref(ref):
+            return {"already_booked": True, "ref": ref}
+        self.ledger.earn(int(amount_cents), ref=ref, memo=f"stripe payment {order_id}")
+        return {"booked_cents": int(amount_cents), "ref": ref, "order_id": order_id}

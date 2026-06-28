@@ -34,14 +34,20 @@ class LinkSpender:
     def __init__(self, api_key=None):
         self.api_key = api_key if api_key is not None else config.STRIPE_SECRET_KEY
         self.enabled = bool(self.api_key) and stripe is not None
+        self.test_mode = self.api_key.startswith("sk_test_")
         if self.enabled:
             stripe.api_key = self.api_key
 
     def __call__(self, amount_cents, vendor, idempotency_key=None):
         if not self.enabled:
             return _stub("vcard_stub")
-        # real Stripe TEST-MODE charge standing in for the Link virtual card.
-        # idempotency_key makes a retry reuse the same charge, never double-charge.
+        # Real business safety: only fire a Stripe charge in TEST mode (the demo
+        # stand-in for buying inputs). With a LIVE key we do NOT charge a test
+        # card (it would fail) and do NOT silently charge a real one — the cost is
+        # recorded/governed by the ledger + gate, and the business pays its own
+        # vendors through their billing. Wire Stripe Issuing for real agent cards.
+        if not self.test_mode:
+            return f"recorded:{vendor}"
         kw = {}
         if idempotency_key:
             kw["idempotency_key"] = f"spend-{idempotency_key}"

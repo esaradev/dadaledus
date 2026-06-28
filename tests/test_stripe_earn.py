@@ -46,6 +46,38 @@ def test_webhook_missing_amount(ledger):
     assert "error" in earn.handle_event(ev)
 
 
+class _StripeObj:
+    """Mimics a real Stripe object: item access works, .get() does NOT."""
+    def __init__(self, d):
+        self._d = d
+    def __getitem__(self, k):
+        return self._d[k]
+
+
+def test_real_customer_pays_path(ledger, monkeypatch):
+    import daedalus.stripe_earn as se
+    earn = StripeEarn(ledger, api_key="sk_test_x")
+
+    # unpaid: poll returns not-paid, books nothing
+    monkeypatch.setattr(se.stripe.checkout.Session, "list",
+                        staticmethod(lambda **k: _StripeObj({"data": []})), raising=False)
+    paid, pi, amount = earn.poll_paid("plink_1")
+    assert paid is False and ledger.pnl()["revenue_cents"] == 0
+
+    # customer paid: poll returns the REAL payment_intent + amount (Stripe object, not dict)
+    session = _StripeObj({"payment_status": "paid", "payment_intent": "pi_real", "amount_total": 600})
+    monkeypatch.setattr(se.stripe.checkout.Session, "list",
+                        staticmethod(lambda **k: _StripeObj({"data": [session]})), raising=False)
+    paid, pi, amount = earn.poll_paid("plink_1")
+    assert paid is True and pi == "pi_real" and amount == 600
+    res = earn.book_paid("o1", pi, amount)
+    assert res["booked_cents"] == 600
+    assert ledger.pnl()["revenue_cents"] == 600
+    # idempotent: same PI books once
+    assert earn.book_paid("o1", pi, amount).get("already_booked") is True
+    assert ledger.pnl()["revenue_cents"] == 600
+
+
 def test_webhook_missing_ref_refused(ledger):
     earn = StripeEarn(ledger, api_key="")
     ev = _event()

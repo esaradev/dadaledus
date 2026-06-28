@@ -137,25 +137,53 @@ stubs a Stripe Payment Link, books collection, runs the spend gate, audits the
 target, asks Nemotron for the customer summary, writes memory if available, and
 reprices from the book.
 
-## Go live (Stripe test mode + Nemotron)
+## Run a real business with your own Stripe
+
+This is usable for a real service, not just the demo. With your own Stripe
+account, the earn side, the spend governance, and the books are all real.
 
 Fill `.env` (copy from `.env.example`):
 
 ```bash
-STRIPE_SECRET_KEY=sk_test_...        # https://dashboard.stripe.com/test/apikeys
-OPENROUTER_API_KEY=...               # https://openrouter.ai/keys  (Nemotron Ultra is free)
+STRIPE_SECRET_KEY=sk_test_...        # TEST first; sk_live_ for real customers
+OPENROUTER_API_KEY=...               # NVIDIA Nemotron (Ultra is free)
 APPROVAL_MODE=attended               # or: policy (standing limit, no tap)
-DAEDALUS_MEMORY_ENABLED=auto          # auto|true|false
-DAEDALUS_MEMORY_ROOT=~/fabric         # Icarus markdown memory root
 ```
 
-Then the real test-mode loop runs: `treasury_collect`/`treasury_run_paid_audit`
-create a real test-mode charge for the customer payment, the Link adapter creates
-a real test-mode charge for the authorized spend, and Nemotron Ultra writes the
-summary. Collection is driven by the agent's tools, so no webhook server is
-needed; the `stripe_earn` webhook handler stays available if you wire your own
-endpoint. For a local privacy route, set `LOCAL_NEMOTRON_URL` to an
-OpenAI-compatible Nemotron endpoint.
+The real customer-pays flow (serverless — no webhook server required):
+
+1. `treasury_intake <url> <customer>` — the agent prices the job and creates a
+   **real Stripe Payment Link**. It returns the URL.
+2. You send that link to your customer. They pay with **their own card**.
+3. `treasury_collect <order>` — the agent polls Stripe and books the **real
+   payment** (its id and amount) when the customer has paid. Until then it
+   reports "not paid yet" and books nothing.
+4. A human approves the fulfillment spend out of band: `daedalus approve <order>`.
+5. `treasury_fulfill <order>` — runs the work on Nemotron, books the cost, delivers.
+6. `treasury_pnl` / `treasury_cfo` — your real double-entry P&L and a CFO brief.
+
+### What is real vs your responsibility
+
+- **Earn — fully real.** Real Payment Links, real customer card payments, real
+  revenue booked double-entry, idempotent on the Stripe payment id.
+- **Spend governance + books — fully real.** Every cost passes the three
+  protections and a human approval, and is booked to the ledger.
+- **Paying your own vendors — yours.** daedalus *tracks and gates* your
+  cost-to-fulfill (your OpenRouter/API/data spend); you pay those vendors through
+  their normal billing. In **live mode the agent never charges a card** for its
+  costs — it records them. (In test mode it fires a visible Stripe test charge as
+  a stand-in, for the demo.) Real autonomous outbound payments via Stripe Issuing
+  virtual cards are on the roadmap.
+
+### Test mode vs live mode
+
+- `sk_test_...` — trial the entire loop end to end with Stripe test cards
+  (`4242 4242 4242 4242`). Nothing charges real money.
+- `sk_live_...` — real customers pay you for real. The agent collects real
+  revenue and tracks real costs; it will not move money outbound on its own.
+
+For a local privacy route (confidential financials on a Nemotron that never
+leaves your box), set `LOCAL_NEMOTRON_URL` to an OpenAI-compatible endpoint.
 
 ## Architecture
 

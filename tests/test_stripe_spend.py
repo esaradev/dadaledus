@@ -24,6 +24,24 @@ def test_link_real_charge_mocked(monkeypatch):
     assert seen["amount"] == 456 and seen["currency"] == "usd"
 
 
+def test_live_mode_records_does_not_charge(monkeypatch):
+    # a real business with a LIVE key must never get a test-card charge or a
+    # surprise real one — the spend is recorded/governed, not charged.
+    import daedalus.stripe_spend as ss
+    called = {"n": 0}
+    monkeypatch.setattr(ss.stripe, "PaymentIntent",
+                        type("X", (), {"create": staticmethod(lambda **k: called.__setitem__("n", 1))}))
+    ref = LinkSpender(api_key="sk_live_x")(150, "openrouter")
+    assert ref == "recorded:openrouter" and called["n"] == 0  # no charge fired
+
+
+def test_test_mode_fires_charge(monkeypatch):
+    import daedalus.stripe_spend as ss
+    monkeypatch.setattr(ss.stripe, "PaymentIntent",
+                        type("X", (), {"create": staticmethod(lambda **k: type("PI", (), {"id": "pi_t"})())}))
+    assert LinkSpender(api_key="sk_test_x")(150, "openrouter") == "pi_t"
+
+
 def test_projects_stub():
     assert ProjectsSpender()(456, "vercel").startswith("proj_")
 
