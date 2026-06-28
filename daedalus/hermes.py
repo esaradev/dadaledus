@@ -253,34 +253,54 @@ HANDLERS = {
 
 
 def on_session_start(session_id="", platform="", **kwargs):
-    s = _stack()
-    p = s["ledger"].pnl()
-    orders = s["orders"].open_orders()
-    lines = [f"[daedalus treasury] revenue {p['revenue_cents']}c, cost {p['cost_cents']}c, "
-             f"profit {p['profit_cents']}c, open orders {len(orders)}."]
-    if orders:
-        lines.append("Funded orders need treasury_fulfill and human_approved=true only after approval.")
-    mem = s["memory"].recall("paid audit pricing spend decision", k=3)
-    if mem.get("hits"):
-        lines.append("[daedalus memory] recent business decisions you have made:")
-        for h in mem["hits"]:
-            lines.append(f"  - {h['type']}: {h['summary']}")
-        lines.append("Call treasury_recall to look up more before pricing or repeating work.")
-    return "\n".join(lines)
+    # Never raise into the Hermes runtime: a briefing failure must not break a session.
+    try:
+        s = _stack()
+        p = s["ledger"].pnl()
+        orders = s["orders"].open_orders()
+        lines = [f"[daedalus treasury] revenue {p['revenue_cents']}c, cost {p['cost_cents']}c, "
+                 f"profit {p['profit_cents']}c, open orders {len(orders)}."]
+        if orders:
+            lines.append("Funded orders need treasury_fulfill, which awaits out-of-band human "
+                         "approval (`daedalus approve <order>`); the agent cannot self-approve.")
+        mem = s["memory"].recall("paid audit pricing spend decision", k=3)
+        if mem.get("hits"):
+            lines.append("[daedalus memory] recent business decisions you have made:")
+            for h in mem["hits"]:
+                lines.append(f"  - {h['type']}: {h['summary']}")
+            lines.append("Call treasury_recall to look up more before pricing or repeating work.")
+        return "\n".join(lines)
+    except Exception as e:
+        return f"[daedalus treasury] briefing unavailable: {e}"
 
 
 def on_session_end(session_id="", platform="", completed=False, **kwargs):
-    s = _stack()
-    s["memory"].record(kind="session", summary=f"Hermes session ended for daedalus ({session_id})",
-                       body={"completed": completed, "five_numbers": s["orch"].five_numbers()},
-                       source_tool="hermes")
+    try:
+        s = _stack()
+        s["memory"].record(kind="session", summary=f"Hermes session ended for daedalus ({session_id})",
+                           body={"completed": completed, "five_numbers": s["orch"].five_numbers()},
+                           source_tool="hermes")
+    except Exception:
+        pass
     return None
+
+
+def _safe(fn):
+    """Outer net so no handler can raise into Hermes — even on a wrongly-typed arg
+    extracted before the handler's own try block."""
+    def wrapper(args, **kwargs):
+        try:
+            return fn(args or {}, **kwargs)
+        except Exception as e:
+            return _json({"error": str(e)})
+    wrapper.__name__ = getattr(fn, "__name__", "handler")
+    return wrapper
 
 
 def register(ctx):
     toolset = "treasury"
     for name, schema in SCHEMAS.items():
-        ctx.register_tool(name=name, toolset=toolset, schema=schema, handler=HANDLERS[name])
+        ctx.register_tool(name=name, toolset=toolset, schema=schema, handler=_safe(HANDLERS[name]))
     ctx.register_hook("on_session_start", on_session_start)
     ctx.register_hook("on_session_end", on_session_end)
 

@@ -44,7 +44,11 @@ class Orchestrator:
     def _new_order_id(self):
         import secrets
 
-        return "o_" + secrets.token_hex(3)
+        for _ in range(8):  # avoid silently overwriting an existing order
+            oid = "o_" + secrets.token_hex(5)
+            if self.orders.read(oid) is None:
+                return oid
+        return "o_" + secrets.token_hex(8)
 
     def _completed_event(self, order_id, amount, ref):
         return {"type": "checkout.session.completed", "data": {"object": {
@@ -85,6 +89,8 @@ class Orchestrator:
         list_price = self.pricing.quote(self.cost_estimate)
         rate, rate_reason = self._customer_rate(customer)
         price = max(int(round(list_price * rate)), self.pricing.cfg.get("min_price_cents", 500))
+        if rate < 1.0 and price >= list_price:  # discount swallowed by the price floor
+            rate_reason = "returning customer, but price is already at the floor (no discount applied)"
         link = self.earn.create_payment_link(price, f"Security audit: {target_url}", order_id)
         order = self.orders.create({
             "id": order_id,
@@ -208,11 +214,17 @@ class Orchestrator:
 
         self.orders.update(order_id, state="fulfilling")
         token = approve(vendor, spend_amount) if approve else None
-        decision = self.spend.authorize(vendor, vhost, spend_amount, approval_token=token)
+        # idempotency_ref makes the spend a no-op on a crash/retry: deterministic
+        # ledger ref + Stripe idempotency key, so COGS and the real charge book once.
+        decision = self.spend.authorize(vendor, vhost, spend_amount, approval_token=token,
+                                        idempotency_ref=f"spend:{order_id}")
         decision_payload = {"allowed": decision.allowed, "protection": decision.protection,
                             "reason": decision.reason, "vendor": vendor,
                             "amount_cents": spend_amount, "ref": decision.ref,
                             "txn_id": decision.txn_id}
+        # persist the decision NOW, before the audit/Nemotron calls, so a crash in
+        # that window doesn't lose the record and trigger a re-spend on retry.
+        self.orders.update(order_id, spend_decision=decision_payload)
         self.orders.append_event(order_id, "spend", decision.reason, **decision_payload)
         self._remember(order_id, "tool-call", f"Hermes requested spend for {order_id}",
                        decision_payload, source_tool=source_tool)
@@ -221,7 +233,14 @@ class Orchestrator:
             self.orders.update(order_id, state=state, spend_decision=decision_payload)
             return {**self.orders.read(order_id), "spend_decision": decision_payload}
 
-        report = self.audit_runner(order["target"])
+        try:
+            report = self.audit_runner(order["target"])
+        except Exception as e:
+            # spend already booked (idempotently); leave the order resumable rather
+            # than crash. A retry reuses the booked spend, never double-charges.
+            self.orders.update(order_id, state="fulfilling")
+            self.orders.append_event(order_id, "audit_error", str(e))
+            return {**self.orders.read(order_id), "error": f"audit failed, retry safe: {e}"}
         report["ai_summary"] = self._summarize(report)               # public -> cloud Ultra
         summary_route = getattr(self.nemotron, "last_route", None)
         fin_note, fin_route = self._financial_note(report["score"])  # sensitive -> local Nemotron
@@ -316,7 +335,9 @@ class Orchestrator:
         ]
         checks = []
         for label, vendor, host, amount, token in cases:
-            d = self.spend.authorize(vendor, host, amount, approval_token=token)
+            # dry_run: demonstrate each protection's decision without moving money,
+            # so this is safe in every approval mode (no spend ever books here).
+            d = self.spend.authorize(vendor, host, amount, approval_token=token, dry_run=True)
             checks.append({"case": label, "vendor": vendor, "host": host,
                            "amount_cents": amount, "allowed": d.allowed,
                            "protection": d.protection, "reason": d.reason})

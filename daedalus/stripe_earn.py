@@ -45,13 +45,19 @@ class StripeEarn:
         standing in for the customer paying the link, booked idempotently. The
         production path is the Payment Link + webhook (handle_event)."""
         if not self.enabled:
-            ref = "pi_stub_" + secrets.token_hex(4)
+            # deterministic ref per order so a retry books revenue once, not twice
+            ref = f"pi_stub_{order_id}" if order_id else "pi_stub_" + secrets.token_hex(4)
+            if self.ledger.has_ref(ref):
+                return {"stub": True, "already_booked": True, "ref": ref}
             self.ledger.earn(int(amount_cents), ref=ref, memo=f"stub charge {order_id}")
             return {"stub": True, "ref": ref, "booked_cents": int(amount_cents)}
+        # idempotency_key makes a retry reuse the same charge (same pi.id), and
+        # has_ref then books revenue once. No double-charge, no double-book.
+        kw = {"idempotency_key": f"collect-{order_id}"} if order_id else {}
         pi = stripe.PaymentIntent.create(
             amount=int(amount_cents), currency="usd",
             payment_method="pm_card_visa", confirm=True, off_session=True,
-            description=description[:200], metadata={"order_id": order_id})
+            description=description[:200], metadata={"order_id": order_id}, **kw)
         ref = pi.id
         if self.ledger.has_ref(ref):
             return {"already_booked": True, "ref": ref}

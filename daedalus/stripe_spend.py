@@ -37,14 +37,18 @@ class LinkSpender:
         if self.enabled:
             stripe.api_key = self.api_key
 
-    def __call__(self, amount_cents, vendor):
+    def __call__(self, amount_cents, vendor, idempotency_key=None):
         if not self.enabled:
             return _stub("vcard_stub")
-        # real Stripe TEST-MODE charge standing in for the Link virtual card
+        # real Stripe TEST-MODE charge standing in for the Link virtual card.
+        # idempotency_key makes a retry reuse the same charge, never double-charge.
+        kw = {}
+        if idempotency_key:
+            kw["idempotency_key"] = f"spend-{idempotency_key}"
         pi = stripe.PaymentIntent.create(
             amount=int(amount_cents), currency="usd",
             payment_method="pm_card_visa", confirm=True, off_session=True,
-            description=f"{config.PROJECT_NAME} spend: {vendor}")
+            description=f"{config.PROJECT_NAME} spend: {vendor}", **kw)
         return pi.id
 
 
@@ -54,7 +58,7 @@ class ProjectsSpender:
     def __init__(self, api_key=None):
         self.api_key = api_key if api_key is not None else config.STRIPE_SECRET_KEY
 
-    def __call__(self, amount_cents, vendor):
+    def __call__(self, amount_cents, vendor, idempotency_key=None):
         return _stub("proj")  # Projects CLI not runnable headless; labelled stub
 
 
@@ -64,7 +68,7 @@ class MPPSpender:
     def __init__(self, wallet_balance_cents=0):
         self.wallet = int(wallet_balance_cents)
 
-    def __call__(self, amount_cents, vendor):
+    def __call__(self, amount_cents, vendor, idempotency_key=None):
         if amount_cents > self.wallet:
             raise RuntimeError(f"MPP wallet underfunded: {self.wallet}c < {amount_cents}c")
         self.wallet -= int(amount_cents)

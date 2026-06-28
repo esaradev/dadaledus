@@ -72,23 +72,34 @@ class SpendControl:
                           allowed=d.allowed, protection=d.protection, reason=d.reason)
         return d
 
-    def authorize(self, vendor, host, amount_cents, port=443, approval_token=None):
+    def authorize(self, vendor, host, amount_cents, port=443, approval_token=None,
+                  idempotency_ref=None, dry_run=False):
         amount_cents = int(amount_cents)
         if amount_cents <= 0:
             return self._log_and_return(Decision(False, "economics",
                                                  "spend amount must be positive", vendor, amount_cents))
+
+        # idempotent: if this exact spend was already booked (crash/retry), do not
+        # re-charge or re-book. The deterministic ref makes the retry a no-op.
+        if idempotency_ref and self.ledger.has_ref(idempotency_ref):
+            return self._log_and_return(Decision(True, "ok", "already authorized and booked",
+                                                 vendor, amount_cents, ref=idempotency_ref))
 
         # 1. egress (security)
         ok, reason = self.egress.check(host, port)
         if not ok:
             return self._log_and_return(Decision(False, "egress", reason, vendor, amount_cents))
 
-        # 2. credential cap (rail-specific)
+        # 2. credential cap (rail-specific), enforced CUMULATIVELY from the ledger so
+        # it holds across tool calls and restarts (not just within one process).
         cap = self.caps.get(vendor)
-        if cap is not None and amount_cents > cap:
-            return self._log_and_return(Decision(
-                False, "credential_cap",
-                f"{vendor} cap is {cap}c, remaining can't cover {amount_cents}c", vendor, amount_cents))
+        if cap is not None:
+            already = self.ledger.cogs_by_vendor().get(vendor, 0)
+            if already + amount_cents > cap:
+                return self._log_and_return(Decision(
+                    False, "credential_cap",
+                    f"{vendor} cap is {cap}c, already spent {already}c, can't cover {amount_cents}c",
+                    vendor, amount_cents))
 
         # 3. economics (the authoritative business check)
         if self.mode == "attended":
@@ -114,10 +125,16 @@ class SpendControl:
                 False, "economics",
                 f"insufficient realized funds: have {available}c, need {amount_cents}c", vendor, amount_cents))
 
-        # all three cleared -> execute and book
-        ref = self.spender(amount_cents, vendor) if self.spender else f"stub:{vendor}:{secrets.token_hex(3)}"
-        txn_id = self.ledger.spend(amount_cents, vendor, ref=ref, memo=vendor)
-        if cap is not None:
-            self.caps[vendor] = cap - amount_cents
+        # all gates cleared. dry_run demonstrates the decision without moving money.
+        if dry_run:
+            return self._log_and_return(Decision(True, "ok", "would authorize (dry run, no money moved)",
+                                                 vendor, amount_cents))
+
+        # execute and book. The ledger ref is deterministic (the idempotency ref)
+        # so a retry can't double-book; the Stripe charge id is kept for provenance.
+        charge_ref = (self.spender(amount_cents, vendor, idempotency_key=idempotency_ref)
+                      if self.spender else f"stub:{vendor}:{secrets.token_hex(3)}")
+        ledger_ref = idempotency_ref or charge_ref
+        txn_id = self.ledger.spend(amount_cents, vendor, ref=ledger_ref, memo=vendor)
         return self._log_and_return(Decision(True, "ok", "authorized and booked",
-                                              vendor, amount_cents, ref=ref, txn_id=txn_id))
+                                              vendor, amount_cents, ref=charge_ref, txn_id=txn_id))

@@ -64,7 +64,37 @@ def test_authorized_spend_books_cogs(gate, ledger):
     assert d.allowed is True and d.protection == "ok"
     assert ledger.balance("COGS") == 456
     assert ledger.pnl()["cash_cents"] == 2000 - 456
-    assert gate.caps["openrouter"] == 10000 - 456  # cap drawn down
+
+
+def test_cap_enforced_cumulatively(gate, ledger):
+    # cap is 10000c; cumulative spend across calls must not exceed it
+    ledger.earn(100000)
+    for _ in range(21):  # 21 * 456 = 9576 < 10000; the 22nd (10032) must block
+        gate.authorize("openrouter", "openrouter.ai", 456, approval_token=_tap("openrouter", 456),
+                       idempotency_ref=f"s{_}")
+    spent = ledger.cogs_by_vendor().get("openrouter", 0)
+    d = gate.authorize("openrouter", "openrouter.ai", 456, approval_token=_tap("openrouter", 456),
+                       idempotency_ref="final")
+    assert d.allowed is False and d.protection == "credential_cap"
+    assert spent <= 10000
+
+
+def test_spend_is_idempotent(gate, ledger):
+    ledger.earn(5000)
+    a = gate.authorize("openrouter", "openrouter.ai", 456, approval_token=_tap("openrouter", 456),
+                       idempotency_ref="spend:o1")
+    b = gate.authorize("openrouter", "openrouter.ai", 456, approval_token=_tap("openrouter", 456),
+                       idempotency_ref="spend:o1")  # retry, same ref
+    assert a.allowed and b.allowed
+    assert ledger.balance("COGS") == 456  # booked once, not twice
+
+
+def test_dry_run_moves_no_money(gate, ledger):
+    ledger.earn(2000)
+    d = gate.authorize("openrouter", "openrouter.ai", 456, approval_token=_tap("openrouter", 456),
+                       dry_run=True)
+    assert d.allowed is True
+    assert ledger.balance("COGS") == 0  # nothing booked
 
 
 def test_decision_is_logged(gate, ledger):

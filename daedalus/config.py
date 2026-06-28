@@ -12,7 +12,11 @@ PROJECT_NAME = "daedalus"
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def _load_dotenv(path=ROOT / ".env"):
+def _load_dotenv():
+    # Read a .env from the current working directory (the repo root when run via
+    # run.sh / the CLI). Installed as a Hermes plugin, env comes from ~/.hermes/.env
+    # which Hermes loads into the environment, so this is a best-effort convenience.
+    path = Path.cwd() / ".env"
     if not path.exists():
         return
     for line in path.read_text().splitlines():
@@ -30,8 +34,9 @@ def _env(key, default=""):
     return os.environ.get(key, default)
 
 
-# storage
-DATA_DIR = Path(_env("DAEDALUS_DIR", str(ROOT / "data")))
+# storage. Default to a stable per-user dir (NOT package-relative), so an installed
+# plugin never writes its ledger into the shared Hermes plugins root.
+DATA_DIR = Path(_env("DAEDALUS_DIR") or str(Path.home() / f".{PROJECT_NAME}")).expanduser()
 DB_PATH = Path(_env("DAEDALUS_DB", str(DATA_DIR / f"{PROJECT_NAME}.db")))
 AUDIT_LOG_PATH = Path(_env("DAEDALUS_AUDIT_LOG", str(DATA_DIR / "spend_decisions.log")))
 ORDER_STORE_PATH = Path(_env("DAEDALUS_ORDERS", str(DATA_DIR / "orders.json")))
