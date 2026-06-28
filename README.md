@@ -190,6 +190,16 @@ Nemotron Ultra. Stubbed and clearly labelled: the Stripe Link CLI
 (needs the mobile app), Stripe Projects provisioning, and MPP chain settlement
 (needs a wallet/Tempo). Nothing fakes a result or moves real money.
 
+## Known limitations
+
+- The order store (`orders.json`) is a single-file read-modify-write. Within one
+  agent session, tool calls are sequential, so this is safe; under genuinely
+  concurrent agents/cron it can last-writer-wins a lost update. The SQLite ledger
+  (the money) is unaffected and stays consistent.
+- Stripe Link CLI, Stripe Projects provisioning, and MPP chain settlement are
+  clearly-labelled stubs (they need a mobile app / external infra). The spend
+  executes as a real Stripe TEST-MODE charge standing in for the Link card.
+
 ## License
 
 MIT.

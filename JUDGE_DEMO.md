@@ -27,15 +27,22 @@ Shows the toolset and a $0.00 double-entry book. (`treasury_pnl`)
 > A customer wants a paid security audit of https://developer.nvidia.com.
 > Quote it, collect payment in test mode, then try to fulfill it.
 
-The agent quotes ($5, real Stripe payment link), collects (real test charge),
-and on fulfill the gate STOPS it: "needs human approval; the agent cannot
-self-approve." It turns to you.
+The agent quotes ($6, real Stripe payment link), collects (real test charge),
+and on fulfill it STOPS at `awaiting_approval`: it prints the exact command a
+human must run. The agent literally cannot approve its own spend — no treasury
+tool can set the approval; only the out-of-band CLI can.
 
-## 3. You approve
-> Approved. Fulfill it.
+## 3. You approve from YOUR terminal (the safety beat)
+In a second terminal, run the command the agent printed, e.g.:
+```bash
+DAEDALUS_DIR=/tmp/dae-hermes daedalus approve <order_id>
+```
+Then in the chat:
+> I approved it. Fulfill it now.
 
 Now it runs the live audit of NVIDIA's site, books the cost, and delivers.
-Profit lands on the book, double-entry.
+Profit lands on the book, double-entry. The point: the agent could not move that
+money until a human acted outside the agent's control.
 
 ## 4. Two Nemotron models, one local
 > Which Nemotron model wrote the public summary, and which wrote the
