@@ -109,3 +109,35 @@ def test_book_balances_across_mixed_outcomes(tmp_path):
     assert ledger.total_imbalance() == 0
     assert orch.delivered == 1 and orch.jobs == 3
     assert audit.count_blocked() == 1
+
+
+def test_persistent_tool_lifecycle_and_memory_refs(tmp_path):
+    class FakeMemory:
+        def __init__(self):
+            self.calls = []
+
+        def record(self, **kwargs):
+            self.calls.append(kwargs)
+            return {"enabled": True, "id": f"mem-{len(self.calls)}"}
+
+    ledger = Ledger(":memory:")
+    pricing = Pricing(state_path=tmp_path / "p.json")
+    audit = AuditLog(tmp_path / "d.log")
+    sc = SpendControl(ledger, egress=Egress(allowed={("openrouter.ai", 443)}),
+                      audit_log=audit, caps={"openrouter": 10000}, mode="attended")
+    earn = StripeEarn(ledger, api_key="")
+    nemo = Nemotron(transport=lambda m, model: "Executive summary.")
+    from daedalus.orders import OrderStore
+
+    orch = Orchestrator(ledger, pricing, sc, earn, nemo,
+                        audit_runner=lambda url, timeout=8: build_report(url, FETCHED),
+                        order_store=OrderStore(tmp_path / "orders.json"),
+                        memory=FakeMemory())
+    q = orch.quote_order("https://example.com")
+    assert q["state"] == "quoted"
+    c = orch.collect_order(q["id"])
+    assert c["state"] == "funded"
+    f = orch.fulfill_order(q["id"], approve=_tap)
+    assert f["state"] == "delivered"
+    assert f["memory_refs"]
+    assert orch.orders.read(q["id"])["report"]["ai_summary"] == "Executive summary."

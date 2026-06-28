@@ -1,17 +1,20 @@
 name: daedalus
 version: 0.2.0
-description: Financial control plane for Hermes agents. A double-entry ledger, Stripe earn plus approval-gated spend, and bounded self-evolving pricing. The agent runs a business and keeps its own books.
+description: Financial control plane for Hermes agents. Quote, earn via Stripe, spend through a three-protection authorization gate, run a real security audit on Nemotron, book double-entry, and reprice.
 author: esaradev
 provides_tools:
   - treasury_intake
   - treasury_collect
-  - treasury_abandon
   - treasury_fulfill
   - treasury_run_paid_audit
+  - treasury_abandon
   - treasury_pnl
   - treasury_open_orders
   - treasury_evolve
   - treasury_rollback
+  - treasury_test_guardrails
+  - treasury_recall
+  - treasury_cfo
 provides_hooks:
   - on_session_start
   - on_session_end

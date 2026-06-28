@@ -9,3 +9,10 @@ from . import config
 
 __all__ = ["config"]
 __version__ = "0.2.0"
+
+
+def register(ctx):
+    """Hermes plugin entrypoint."""
+    from .hermes import register as _register
+
+    return _register(ctx)

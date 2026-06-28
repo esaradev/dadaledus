@@ -11,18 +11,19 @@ margin, no per-vendor cap, no audit trail.
 ## The wedge
 
 daedalus is the missing ledger and spend control for any agent that spends to
-earn. An agent runs a real service, a website security audit, and keeps its own
-P&L. It prices the job, earns through Stripe, and to fulfill it must buy inputs
-through an authorization gate. Every spend clears three independent protections,
-in order:
+earn. Hermes runs a real service, a website security audit, and daedalus is the
+treasury it must use. Hermes prices the job, earns through Stripe, and to
+fulfill it must buy inputs through an authorization gate. Every spend clears
+three independent protections, in order:
 
 1. egress — a default-deny allowlist mirroring NemoClaw. Off-list host, denied.
 2. credential cap — the per-vendor Stripe Projects / funded-wallet limit.
 3. economics — attended approval (one human tap; the agent cannot self-approve)
    or a standing policy limit, plus a check that the realized funds exist.
 
-Then it reads its own double-entry book and reprices: raise while customers keep
-paying, cut when they walk.
+Then it reads its own double-entry book, writes the decision trail into Icarus
+markdown memory, and reprices: raise while customers keep paying, cut when they
+walk.
 
 ## The stack
 
@@ -33,15 +34,17 @@ paying, cut when they walk.
 - Stripe is both sides of the rail: Payment Links and the webhook to earn, the
   Link / Projects / MPP adapters to spend.
 - NemoClaw is the egress layer; daedalus emits the policy.yaml the sandbox runs.
-- Hermes drives it via a SKILL.md.
+- Hermes drives it through registered treasury tools, not a sidecar script.
+- Icarus markdown memory records the Hermes tool calls, spend decisions,
+  Nemotron route decisions, delivered report, and pricing changes.
 
 ## The numbers
 
-The demo runs the whole loop with no human: a real live audit, one spend
-authorized and one blocked with its reason logged, a double-entry book that
-balances to zero, and a live dashboard of five numbers, revenue, cost, profit,
-blocked actions, repriced. 89 tests pass; the core modules are above 90% coverage.
-Standalone-runnable with no keys; real Stripe test mode and Nemotron with keys.
+Hermes runs the whole loop through the treasury tools: a real live audit, one
+approval-gated spend, explicit blocks with reasons logged, a double-entry book
+that balances to zero, and the five numbers from `treasury_pnl`: revenue, cost,
+profit, blocked actions, repriced. Standalone-runnable with no keys; real Stripe
+test mode and Nemotron with keys.
 
 ## Coming soon
 

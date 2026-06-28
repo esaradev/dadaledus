@@ -1,7 +1,7 @@
 """Append-only record of every spend decision. Allowed or blocked, with reason.
 
 This is the audit trail a finance team needs before letting agents touch a card,
-and it feeds the dashboard's "blocked actions" number and the event feed. One
+and it feeds the "blocked actions" count and the spend-decision feed. One
 JSON object per line; never mutated.
 """
 

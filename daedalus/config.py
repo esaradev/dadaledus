@@ -34,6 +34,7 @@ def _env(key, default=""):
 DATA_DIR = Path(_env("DAEDALUS_DIR", str(ROOT / "data")))
 DB_PATH = Path(_env("DAEDALUS_DB", str(DATA_DIR / f"{PROJECT_NAME}.db")))
 AUDIT_LOG_PATH = Path(_env("DAEDALUS_AUDIT_LOG", str(DATA_DIR / "spend_decisions.log")))
+ORDER_STORE_PATH = Path(_env("DAEDALUS_ORDERS", str(DATA_DIR / "orders.json")))
 
 # spend authorization: attended = one human tap (approval token required),
 # policy = standing per-period limit, no tap under the cap.
@@ -54,12 +55,18 @@ LOCAL_NEMOTRON_URL = _env("LOCAL_NEMOTRON_URL")
 LOCAL_NEMOTRON_MODEL = _env("LOCAL_NEMOTRON_MODEL", "nvidia/nemotron-3-nano-30b-a3b")
 NEMOTRON_ENABLED = bool(OPENROUTER_API_KEY or LOCAL_NEMOTRON_URL)
 
+# Icarus markdown memory. "auto" means: use it if the icarus_memory package is
+# importable, otherwise keep the business flow running and label it unavailable.
+DAEDALUS_MEMORY_ENABLED = _env("DAEDALUS_MEMORY_ENABLED", "auto").lower()
+DAEDALUS_MEMORY_ROOT = _env("DAEDALUS_MEMORY_ROOT", _env("ICARUS_FABRIC_ROOT", str(Path("~/fabric").expanduser())))
+
 
 def status():
-    """What is wired vs stubbed. Used by the CLI and dashboard to label honestly."""
+    """What is wired vs stubbed. Used by the CLI and tools to label honestly."""
     return {
         "project": PROJECT_NAME,
         "approval_mode": APPROVAL_MODE,
         "stripe": "test" if STRIPE_TEST_MODE else ("live-key!" if STRIPE_ENABLED else "stub"),
         "nemotron": "openrouter" if OPENROUTER_API_KEY else ("local" if LOCAL_NEMOTRON_URL else "stub"),
+        "memory": DAEDALUS_MEMORY_ENABLED,
     }

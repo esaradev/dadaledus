@@ -1,54 +1,71 @@
 # daedalus demo script (3 minutes)
 
-Record a terminal full-screen, large font, plus one cut to the dashboard.
-Run `./run.sh demo` for the loop and `./run.sh serve` for the dashboard.
+A Hermes-native plugin. Film a real Hermes session driving the treasury tools.
+Setup once: `rm -rf /tmp/dae-hermes` for a clean book, then `hermes chat`.
+Full screen, large font, light on dark.
 
 ## 0:00 - 0:25 — the pain
 
-On camera: a terminal at a $0.00 P&L.
+On camera: an empty Hermes session.
 
 "Stripe just gave agents the ability to spend money. The moment you let an agent
 spend, you have no idea if it is profitable, or whether it is about to pay
-someone it never should. This is daedalus. It gives an agent a P&L and a spend
-gate. Watch it run a real business and turn a profit, by itself."
+someone it never should. daedalus is a Hermes plugin that gives the agent a P&L
+and a spend gate. Watch the agent run a business, by itself."
 
-## 0:25 - 1:25 — the loop, once, live
+## 0:25 - 1:25 — the agent runs the loop
 
-Run `./run.sh demo`. Narrate as it prints:
+Type into Hermes:
 
-- "A customer wants a security audit. The agent prices it, cost to fulfill times
-  its markup, and sends a Stripe payment link. Earning is autonomous."
-- "Paid. Revenue booked, double-entry."
-- "To do the work it has to buy the model that writes the summary. That spend hits
-  the gate. In attended mode it needs a human tap. The agent cannot approve its
-  own money. I approve once."
-- "Now it runs the real audit, and NVIDIA Nemotron writes the summary." Point at the live findings:
-  TLS, the missing https redirect, the absent security headers, a real score.
-- "Profit booked. It earned more than it spent."
+> Run a paid security audit of https://example.com for a customer. Quote it,
+> collect payment in test mode, then fulfill it.
 
-## 1:25 - 2:05 — the gate blocks a bad spend
+Narrate the tool calls as Hermes makes them, live:
 
-Same run, Act 2 on screen.
+- "It calls `treasury_intake` — quotes the job, cost to fulfill times its markup,
+  and creates a real Stripe payment link. Earning is autonomous."
+- "`treasury_collect` — the customer pays, a real Stripe test charge, booked
+  double-entry."
 
-"Now the agent tries to pay a data broker that is not on its allowlist. Blocked,
-by egress, before any money moves. This is NemoClaw's default-deny policy, and
-daedalus emits the exact policy.yaml the sandbox enforces. Three independent
-protections: who it can talk to, the per-vendor cap, and the book. A spend has to
-clear all three."
+## 1:25 - 2:05 — the approval gate (the safety beat)
+
+Hermes calls `treasury_fulfill` and the gate blocks it.
+
+- "It tries to buy the model that writes the report. Blocked. In attended mode the
+  agent cannot approve its own spend. It turns to me and asks."
+
+Type:
+
+> Approved.
+
+- "Now it retries with my approval, runs the real audit on the live site, NVIDIA
+  Nemotron writes the summary, and books the cost. Profit on the board."
 
 ## 2:05 - 2:35 — the five numbers
 
-Cut to `./run.sh serve`, the dashboard.
+Type:
 
-"Revenue, cost, profit, blocked actions, repriced. Live, off the agent's own
-double-entry ledger. The book always balances to zero. This is the thing finance
-needs before it lets fifty agents touch a card."
+> What's our P&L?
+
+Hermes calls `treasury_pnl`.
+
+- "Revenue, cost, profit, blocked actions, repriced — off the agent's own
+  double-entry book, which always balances to zero. This is what finance needs
+  before it lets fifty agents touch a card."
+
+(Optional second cut: in another terminal, show `dashboard.stripe.com/test/payments`
+with the two real test-mode charges this run created.)
 
 ## 2:35 - 3:00 — it reprices itself, and the close
 
-Back to the terminal, Act 3.
+Type:
 
-"It read its own P&L and raised its price, because margins were fat and customers
-kept paying. Earn, spend through the gate, book every dollar, reprice. NVIDIA
-Nemotron does the work, NemoClaw guards the egress, Stripe moves the money. This
-is daedalus. It drops into any Hermes agent. The repo is open."
+> Reprice from the book.
+
+Hermes calls `treasury_evolve`.
+
+- "It read its own P&L and raised its price, because margins were fat and
+  customers kept paying. Earn, spend through the gate, book every dollar,
+  reprice. NVIDIA Nemotron does the work, NemoClaw guards the egress, Stripe moves
+  the money, and it all runs as a Hermes plugin. This is daedalus. The repo is
+  open."

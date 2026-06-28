@@ -1,102 +1,90 @@
-# daedalus
+# daedalus Hermes plugin
 
-> The financial control plane for Hermes agents.
->
-> An agent that spends money is flying blind. This gives it a P&L.
-
-Daedalus built the apparatus that made flight possible. `daedalus` is the
-apparatus that lets a Hermes agent run a business: a double-entry ledger, Stripe
-on both sides of the rail, and pricing that tunes itself from the books. Sibling
-to the Icarus memory plugins, and it shares the same `~/fabric/` store.
-
-Built for the Hermes Agent Accelerated Business Hackathon (NVIDIA x Stripe x
-Nous Research).
-
-## The loop
-
-```
-order in
-  treasury_intake   price = cost-to-fulfill x markup, send Stripe checkout   [autonomous]
-  treasury_collect  customer pays -> book revenue                            [autonomous]
-  treasury_fulfill  ONE scoped virtual card for the whole spend
-                      -> blocks on a human approval tap in the Link app   <- only human touch
-                      -> buy inputs, produce on Nemotron, book the costs
-  treasury_pnl      profit on the board
-  treasury_evolve   reprice from the book, within hard bounds
-```
-
-Earning is fully autonomous. Spending stops at a human tap, by Stripe's design.
-The agent **cannot** approve its own spend. That gate is the safety feature, not
-a limitation, and the agent batches a whole order's spend into one approval so
-the human is interrupted once per order, not once per API call.
-
-## Why three sponsors, load-bearing
-
-- **Nous / Hermes** — the runtime. This is a Hermes plugin, same contract as the
-  Icarus family (`register(ctx)`, `register_tool`, `register_hook`).
-- **Stripe** — both sides of the ledger. Payment Links to earn, the Link CLI
-  with scoped single-use virtual cards to spend, the approval gate for trust.
-- **NVIDIA** — Nemotron does the billable reasoning. NemoClaw-style routing keeps
-  card numbers, customer PII, and the ledger on a **local** Nemotron and never
-  ships them to the cloud. Self-evolving pricing is the pattern from NVIDIA's own
-  Hermes + NemoClaw launch.
-
-## Install (as a Hermes plugin)
+Daedalus is now a Hermes-first treasury plugin exposed by the core `daedalus`
+package. This `integrations/hermes_plugin` folder remains as a compatibility
+shim for older plugin layouts, but the production path is:
 
 ```bash
 git clone https://github.com/esaradev/daedalus.git
-mkdir -p ~/.hermes/plugins/daedalus
-cp -r daedalus/daedalus/* ~/.hermes/plugins/daedalus/
-cp -r daedalus/daedalus/skill ~/.hermes/skills/daedalus
+cd daedalus
+python -m pip install -e .
 ```
 
-Start Hermes, `/plugins` should show `daedalus (7 tools, 2 hooks)`.
+The package exports `register(ctx)`, so Hermes can load the installed package
+directly. It registers:
 
-## Configure
+- `treasury_intake`
+- `treasury_collect`
+- `treasury_fulfill`
+- `treasury_run_paid_audit`
+- `treasury_abandon`
+- `treasury_pnl`
+- `treasury_open_orders`
+- `treasury_evolve`
+- `treasury_rollback`
+
+It also registers session hooks that brief Hermes on the book at session start
+and write an Icarus memory note at session end when `icarus-memory` is
+available.
+
+## Install into a real Hermes instance
+
+Hermes imports plugins from its own agent runtime, so installing into only the
+repo virtualenv is not enough.
 
 ```bash
-# where the books live (defaults to ~/fabric/daedalus)
-export DAEDALUS_DIR=~/fabric/daedalus
+git clone https://github.com/esaradev/daedalus.git
+cd daedalus
 
-# Stripe — test mode is fine. Without it, runs in a labelled SANDBOX.
-export STRIPE_API_KEY=sk_test_...
-export STRIPE_LINK_CLI=link-cli          # the @stripe/link-cli binary
+# Use the Python shown by `hermes --version` if this path differs.
+uv pip install --python ~/.hermes/hermes-agent/venv/bin/python -e ".[memory]"
 
-# Nemotron — local (sensitive) and cloud (heavy). Without either, sandbox stub.
-export NEMOTRON_LOCAL_BASE_URL=http://localhost:8000/v1
-export NEMOTRON_CLOUD_BASE_URL=https://integrate.api.nvidia.com/v1
-export NEMOTRON_API_KEY=...
+export HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
+mkdir -p "$HERMES_HOME/plugins/daedalus"
+cp integrations/hermes_plugin/daedalus/plugin.yaml "$HERMES_HOME/plugins/daedalus/plugin.yaml"
+cp integrations/hermes_plugin/daedalus/__init__.py "$HERMES_HOME/plugins/daedalus/__init__.py"
+
+hermes plugins enable daedalus
+hermes tools list | rg treasury
 ```
 
-## See it run, no keys needed
+The successful check is:
+
+```text
+Plugin toolsets (cli):
+  enabled  treasury
+```
+
+Then run the judged flow from Hermes itself:
 
 ```bash
-pip install -e .
-daedalus showcase    # the full story in one run: one order end to end,
-                      # then the agent discovering its own price
+set -a
+source .env
+set +a
+hermes chat -t treasury --provider openrouter -m openai/gpt-4o-mini \
+  -q 'Use the Daedalus treasury plugin. Call treasury_run_paid_audit for target https://developer.nvidia.com with customer "judge", human_approved true, test_collect true, evolve true. Return the order id, final state, score, Nemotron route, profit, and memory ids.'
 ```
 
-Other commands: `daedalus demo "<spec>"` (one order), `daedalus discover`
-(the pricing loop), `daedalus pnl` / `daedalus orders` (read the book).
+## Runtime shape
 
-Sandbox mode runs the exact same control flow with no money moving and is
-clearly labelled at every step. It never claims a real charge happened. Set the
-Stripe and Nemotron env vars to run it for real in test mode.
+Hermes is the agent runtime. Daedalus is the control plane:
 
-## The books
-
-Append-only, double-entry, on disk. Money is integer cents; postings are never
-mutated; P&L is a fold over the file. One markdown file per order, so you can
-read the books by scrolling a folder.
-
-```
-~/fabric/daedalus/
-├── ledger.jsonl          one immutable posting per line
-├── orders/<id>.md        one order each, YAML frontmatter + spec
-├── pricing.json          current markup and bounds
-└── pricing_snapshots.jsonl
+```text
+Hermes tool call -> quote -> Stripe Payment Link -> collect
+                 -> spend gate -> live audit -> Nemotron summary
+                 -> ledger -> Icarus markdown memory -> reprice
 ```
 
-## License
+Use `human_approved=true` only after the human approval tap. Without it,
+attended mode blocks fulfillment and records the reason.
 
-MIT.
+## Optional memory
+
+```bash
+python -m pip install -e ".[memory]"
+export DAEDALUS_MEMORY_ENABLED=auto
+export DAEDALUS_MEMORY_ROOT=~/fabric
+```
+
+If Icarus memory is unavailable, the treasury flow still works and labels memory
+as unavailable in tool results and the dashboard.

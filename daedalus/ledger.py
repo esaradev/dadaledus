@@ -134,6 +134,18 @@ class Ledger:
             "margin_pct": round(100 * profit / revenue, 1) if revenue > 0 else 0.0,
         }
 
+    def cogs_by_vendor(self):
+        # vendor lives in the txn kind ("spend:<vendor>"); COGS is a single account.
+        rows = self.conn.execute(
+            "SELECT t.kind, COALESCE(SUM(CASE WHEN e.account='COGS' THEN e.amount END),0) AS spent "
+            "FROM txn t JOIN entry e ON e.txn_id=t.id WHERE t.kind LIKE 'spend:%' "
+            "GROUP BY t.kind"
+        ).fetchall()
+        out = {}
+        for r in rows:
+            out[r["kind"].split(":", 1)[1]] = out.get(r["kind"].split(":", 1)[1], 0) + r["spent"]
+        return out
+
     def transactions(self, limit=50):
         rows = self.conn.execute(
             """SELECT t.id, t.ts, t.kind, t.ref, t.memo,

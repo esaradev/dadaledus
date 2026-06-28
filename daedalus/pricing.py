@@ -80,8 +80,20 @@ class Pricing:
         target = self._clamp(old, target)
         if target == old:
             return {"changed": False, "reason": "already at a bound", "markup": old, "conversion": conversion}
+        c["previous_markup"] = old
         c["markup"] = target
         c["repriced"] = c.get("repriced", 0) + 1
         self.repriced = c["repriced"]
         self._save()
         return {"changed": True, "old_markup": old, "markup": target, "reason": why, "conversion": conversion}
+
+    def rollback(self):
+        old = self.cfg.get("previous_markup")
+        if old is None:
+            return {"changed": False, "reason": "no previous markup snapshot", "markup": self.markup}
+        current = self.markup
+        self.cfg["markup"] = old
+        self.cfg["previous_markup"] = current
+        self._save()
+        return {"changed": True, "old_markup": current, "markup": old,
+                "reason": "restored previous markup"}

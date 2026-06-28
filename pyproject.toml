@@ -6,14 +6,13 @@ authors = [{ name = "esaradev" }]
 requires-python = ">=3.11"
 license = { text = "MIT" }
 dependencies = [
-    "fastapi>=0.115",
-    "uvicorn[standard]>=0.30",
     "stripe>=12",
     "httpx>=0.27",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "coverage>=7"]
+memory = ["icarus-memory @ git+https://github.com/esaradev/icarus-memory-infra.git@main"]
 
 [project.scripts]
 daedalus = "daedalus.cli:main"

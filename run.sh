@@ -12,14 +12,14 @@ case "${1:-help}" in
     ./.venv/bin/python -m pip install -q --upgrade pip
     ./.venv/bin/python -m pip install -q -e ".[dev]"
     [ -f .env ] || cp .env.example .env
-    echo "setup done. edit .env, then: ./run.sh demo"
+    echo "setup done. edit .env, then: ./run.sh job https://developer.nvidia.com"
     ;;
   test)    "$PY" -m pytest "${@:2}" ;;
   cov)     "$PY" -m coverage run -m pytest && "$PY" -m coverage report -m \
              --include="daedalus/ledger.py,daedalus/spend_control.py,daedalus/pricing.py,daedalus/jobs/audit.py" ;;
   demo)    "$PY" -m daedalus.cli demo "${@:2}" ;;
+  job)     "$PY" -m daedalus.cli job "${@:2}" ;;
   audit)   "$PY" -m daedalus.cli audit "${@:2}" ;;
   pnl)     "$PY" -m daedalus.cli pnl ;;
-  serve)   "$PY" -m daedalus.cli serve ;;
-  *) echo "usage: ./run.sh {setup|test|cov|demo|audit|pnl|serve}" ;;
+  *) echo "usage: ./run.sh {setup|test|cov|demo|job|audit|pnl}" ;;
 esac
